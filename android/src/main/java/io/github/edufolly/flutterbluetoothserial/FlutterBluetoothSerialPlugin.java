@@ -18,7 +18,8 @@ import androidx.core.content.ContextCompat;
 
 import android.util.Log;
 import android.util.SparseArray;
-import android.os.AsyncTask;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -74,6 +75,7 @@ public class FlutterBluetoothSerialPlugin implements FlutterPlugin, ActivityAwar
 
     /// Last ID given to any connection, used to avoid duplicate IDs 
     private int lastConnectionId = 0;
+    private final ExecutorService executorService = Executors.newCachedThreadPool();
     private Activity activity;
     private BinaryMessenger messenger;
     private Context activeContext;
@@ -375,6 +377,7 @@ public class FlutterBluetoothSerialPlugin implements FlutterPlugin, ActivityAwar
     @Override
     public void onDetachedFromEngine(@NonNull FlutterPlugin.FlutterPluginBinding binding) {
         if (methodChannel != null) methodChannel.setMethodCallHandler(null);
+        executorService.shutdown();
     }
 
     @Override
@@ -511,7 +514,7 @@ public class FlutterBluetoothSerialPlugin implements FlutterPlugin, ActivityAwar
                     self.disconnect();
 
                     // True dispose
-                    AsyncTask.execute(() -> {
+                    executorService.execute(() -> {
                         readChannel.setStreamHandler(null);
                         connections.remove(id);
 
@@ -625,35 +628,6 @@ public class FlutterBluetoothSerialPlugin implements FlutterPlugin, ActivityAwar
                                 // Ignoring failure (since it isn't critical API for most applications)
                                 Log.d(TAG, "Obtaining address using Settings Secure bank failed");
                                 //result.error("hidden_address", "obtaining address using Settings Secure bank failed", exceptionToString(ex));
-                            }
-
-                            Log.d(TAG, "Trying to obtain address using reflection against internal Android code");
-                            try {
-                                // This will most likely work, but well, it is unsafe
-                                java.lang.reflect.Field mServiceField;
-                                mServiceField = bluetoothAdapter.getClass().getDeclaredField("mService");
-                                mServiceField.setAccessible(true);
-
-                                Object bluetoothManagerService = mServiceField.get(bluetoothAdapter);
-                                if (bluetoothManagerService == null) {
-                                    if (!bluetoothAdapter.isEnabled()) {
-                                        Log.d(TAG, "Probably failed just because adapter is disabled!");
-                                    }
-                                    throw new NullPointerException();
-                                }
-                                java.lang.reflect.Method getAddressMethod;
-                                getAddressMethod = bluetoothManagerService.getClass().getMethod("getAddress");
-                                String value = (String) getAddressMethod.invoke(bluetoothManagerService);
-                                if (value == null) {
-                                    throw new NullPointerException();
-                                }
-                                address = value;
-                                Log.d(TAG, "Probably succed: " + address + " ✨ :F");
-                                break;
-                            } catch (Exception ex) {
-                                // Ignoring failure (since it isn't critical API for most applications)
-                                Log.d(TAG, "Obtaining address using reflection against internal Android code failed");
-                                //result.error("hidden_address", "obtaining address using reflection agains internal Android code failed", exceptionToString(ex));
                             }
 
                             Log.d(TAG, "Trying to look up address by network interfaces - might be invalid on some devices");
@@ -1002,7 +976,7 @@ public class FlutterBluetoothSerialPlugin implements FlutterPlugin, ActivityAwar
 
                     Log.d(TAG, "Connecting to " + address + " (id: " + id + ")");
 
-                    AsyncTask.execute(() -> {
+                    executorService.execute(() -> {
                         try {
                             connection.connect(address);
                             activity.runOnUiThread(() -> result.success(id));
@@ -1036,7 +1010,7 @@ public class FlutterBluetoothSerialPlugin implements FlutterPlugin, ActivityAwar
 
                     if (call.hasArgument("string")) {
                         String string = call.argument("string");
-                        AsyncTask.execute(() -> {
+                        executorService.execute(() -> {
                             try {
                                 connection.write(string.getBytes());
                                 activity.runOnUiThread(() -> result.success(null));
@@ -1046,7 +1020,7 @@ public class FlutterBluetoothSerialPlugin implements FlutterPlugin, ActivityAwar
                         });
                     } else if (call.hasArgument("bytes")) {
                         byte[] bytes = call.argument("bytes");
-                        AsyncTask.execute(() -> {
+                        executorService.execute(() -> {
                             try {
                                 connection.write(bytes);
                                 activity.runOnUiThread(() -> result.success(null));
