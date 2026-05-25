@@ -11,6 +11,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.os.Build;
 
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
@@ -18,7 +19,8 @@ import androidx.core.content.ContextCompat;
 
 import android.util.Log;
 import android.util.SparseArray;
-import android.os.AsyncTask;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -74,6 +76,7 @@ public class FlutterBluetoothSerialPlugin implements FlutterPlugin, ActivityAwar
 
     /// Last ID given to any connection, used to avoid duplicate IDs 
     private int lastConnectionId = 0;
+    private final ExecutorService executorService = Executors.newCachedThreadPool();
     private Activity activity;
     private BinaryMessenger messenger;
     private Context activeContext;
@@ -113,7 +116,7 @@ public class FlutterBluetoothSerialPlugin implements FlutterPlugin, ActivityAwar
             public void onReceive(Context context, Intent intent) {
                 switch (intent.getAction()) {
                     case BluetoothDevice.ACTION_PAIRING_REQUEST:
-                        final BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                        final BluetoothDevice device = getDeviceExtra(intent);
                         final int pairingVariant = intent.getIntExtra(BluetoothDevice.EXTRA_PAIRING_VARIANT, BluetoothDevice.ERROR);
                         Log.d(TAG, "Pairing request (variant " + pairingVariant + ") incoming from " + device.getAddress());
                         switch (pairingVariant) {
@@ -267,7 +270,7 @@ public class FlutterBluetoothSerialPlugin implements FlutterPlugin, ActivityAwar
                 final String action = intent.getAction();
                 switch (action) {
                     case BluetoothDevice.ACTION_FOUND:
-                        final BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                        final BluetoothDevice device = getDeviceExtra(intent);
                         //final BluetoothClass deviceClass = intent.getParcelableExtra(BluetoothDevice.EXTRA_CLASS); // @TODO . !BluetoothClass!
                         //final String extraName = intent.getStringExtra(BluetoothDevice.EXTRA_NAME); // @TODO ? !EXTRA_NAME!
                         final int deviceRSSI = intent.getShortExtra(BluetoothDevice.EXTRA_RSSI, Short.MIN_VALUE);
@@ -375,6 +378,7 @@ public class FlutterBluetoothSerialPlugin implements FlutterPlugin, ActivityAwar
     @Override
     public void onDetachedFromEngine(@NonNull FlutterPlugin.FlutterPluginBinding binding) {
         if (methodChannel != null) methodChannel.setMethodCallHandler(null);
+        executorService.shutdown();
     }
 
     @Override
@@ -409,7 +413,14 @@ public class FlutterBluetoothSerialPlugin implements FlutterPlugin, ActivityAwar
                 (requestCode, permissions, grantResults) -> {
                     switch (requestCode) {
                         case REQUEST_COARSE_LOCATION_PERMISSIONS:
-                            pendingPermissionsEnsureCallbacks.onResult(grantResults[0] == PackageManager.PERMISSION_GRANTED);
+                            boolean allGranted = true;
+                            for (int result : grantResults) {
+                                if (result != PackageManager.PERMISSION_GRANTED) {
+                                    allGranted = false;
+                                    break;
+                                }
+                            }
+                            pendingPermissionsEnsureCallbacks.onResult(allGranted);
                             pendingPermissionsEnsureCallbacks = null;
                             return true;
                     }
@@ -444,17 +455,30 @@ public class FlutterBluetoothSerialPlugin implements FlutterPlugin, ActivityAwar
     EnsurePermissionsCallback pendingPermissionsEnsureCallbacks = null;
 
     private void ensurePermissions(EnsurePermissionsCallback callbacks) {
-        if (
-                ContextCompat.checkSelfPermission(activity,
-                        Manifest.permission.ACCESS_COARSE_LOCATION)
-                        != PackageManager.PERMISSION_GRANTED
-                        || ContextCompat.checkSelfPermission(activity,
-                        Manifest.permission.ACCESS_FINE_LOCATION)
-                        != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(activity,
-                    new String[]{Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION},
-                    REQUEST_COARSE_LOCATION_PERMISSIONS);
+        List<String> permissionsNeeded = new ArrayList<>();
+        if (ContextCompat.checkSelfPermission(activity,
+                Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            permissionsNeeded.add(Manifest.permission.ACCESS_COARSE_LOCATION);
+        }
+        if (ContextCompat.checkSelfPermission(activity,
+                Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            permissionsNeeded.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(activity,
+                    Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
+                permissionsNeeded.add(Manifest.permission.BLUETOOTH_SCAN);
+            }
+            if (ContextCompat.checkSelfPermission(activity,
+                    Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                permissionsNeeded.add(Manifest.permission.BLUETOOTH_CONNECT);
+            }
+        }
 
+        if (!permissionsNeeded.isEmpty()) {
+            ActivityCompat.requestPermissions(activity,
+                    permissionsNeeded.toArray(new String[0]),
+                    REQUEST_COARSE_LOCATION_PERMISSIONS);
             pendingPermissionsEnsureCallbacks = callbacks;
         } else {
             callbacks.onResult(true);
@@ -511,7 +535,7 @@ public class FlutterBluetoothSerialPlugin implements FlutterPlugin, ActivityAwar
                     self.disconnect();
 
                     // True dispose
-                    AsyncTask.execute(() -> {
+                    executorService.execute(() -> {
                         readChannel.setStreamHandler(null);
                         connections.remove(id);
 
@@ -590,7 +614,7 @@ public class FlutterBluetoothSerialPlugin implements FlutterPlugin, ActivityAwar
 
                 case "requestDisable":
                     if (bluetoothAdapter.isEnabled()) {
-                        bluetoothAdapter.disable();
+                        disableAdapter();
                         result.success(true);
                     } else {
                         result.success(false);
@@ -625,35 +649,6 @@ public class FlutterBluetoothSerialPlugin implements FlutterPlugin, ActivityAwar
                                 // Ignoring failure (since it isn't critical API for most applications)
                                 Log.d(TAG, "Obtaining address using Settings Secure bank failed");
                                 //result.error("hidden_address", "obtaining address using Settings Secure bank failed", exceptionToString(ex));
-                            }
-
-                            Log.d(TAG, "Trying to obtain address using reflection against internal Android code");
-                            try {
-                                // This will most likely work, but well, it is unsafe
-                                java.lang.reflect.Field mServiceField;
-                                mServiceField = bluetoothAdapter.getClass().getDeclaredField("mService");
-                                mServiceField.setAccessible(true);
-
-                                Object bluetoothManagerService = mServiceField.get(bluetoothAdapter);
-                                if (bluetoothManagerService == null) {
-                                    if (!bluetoothAdapter.isEnabled()) {
-                                        Log.d(TAG, "Probably failed just because adapter is disabled!");
-                                    }
-                                    throw new NullPointerException();
-                                }
-                                java.lang.reflect.Method getAddressMethod;
-                                getAddressMethod = bluetoothManagerService.getClass().getMethod("getAddress");
-                                String value = (String) getAddressMethod.invoke(bluetoothManagerService);
-                                if (value == null) {
-                                    throw new NullPointerException();
-                                }
-                                address = value;
-                                Log.d(TAG, "Probably succed: " + address + " ✨ :F");
-                                break;
-                            } catch (Exception ex) {
-                                // Ignoring failure (since it isn't critical API for most applications)
-                                Log.d(TAG, "Obtaining address using reflection against internal Android code failed");
-                                //result.error("hidden_address", "obtaining address using reflection agains internal Android code failed", exceptionToString(ex));
                             }
 
                             Log.d(TAG, "Trying to look up address by network interfaces - might be invalid on some devices");
@@ -828,7 +823,7 @@ public class FlutterBluetoothSerialPlugin implements FlutterPlugin, ActivityAwar
                             switch (intent.getAction()) {
                                 // @TODO . BluetoothDevice.ACTION_PAIRING_CANCEL
                                 case BluetoothDevice.ACTION_BOND_STATE_CHANGED:
-                                    final BluetoothDevice someDevice = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                                    final BluetoothDevice someDevice = getDeviceExtra(intent);
                                     if (!someDevice.equals(device)) {
                                         break;
                                     }
@@ -1002,7 +997,7 @@ public class FlutterBluetoothSerialPlugin implements FlutterPlugin, ActivityAwar
 
                     Log.d(TAG, "Connecting to " + address + " (id: " + id + ")");
 
-                    AsyncTask.execute(() -> {
+                    executorService.execute(() -> {
                         try {
                             connection.connect(address);
                             activity.runOnUiThread(() -> result.success(id));
@@ -1036,7 +1031,7 @@ public class FlutterBluetoothSerialPlugin implements FlutterPlugin, ActivityAwar
 
                     if (call.hasArgument("string")) {
                         String string = call.argument("string");
-                        AsyncTask.execute(() -> {
+                        executorService.execute(() -> {
                             try {
                                 connection.write(string.getBytes());
                                 activity.runOnUiThread(() -> result.success(null));
@@ -1046,7 +1041,7 @@ public class FlutterBluetoothSerialPlugin implements FlutterPlugin, ActivityAwar
                         });
                     } else if (call.hasArgument("bytes")) {
                         byte[] bytes = call.argument("bytes");
-                        AsyncTask.execute(() -> {
+                        executorService.execute(() -> {
                             try {
                                 connection.write(bytes);
                                 activity.runOnUiThread(() -> result.success(null));
@@ -1066,5 +1061,19 @@ public class FlutterBluetoothSerialPlugin implements FlutterPlugin, ActivityAwar
             }
         }
 
+    }
+
+    @SuppressWarnings("deprecation")
+    private void disableAdapter() {
+        bluetoothAdapter.disable();
+    }
+
+    @SuppressWarnings("deprecation")
+    private BluetoothDevice getDeviceExtra(Intent intent) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            return intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice.class);
+        } else {
+            return intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+        }
     }
 }

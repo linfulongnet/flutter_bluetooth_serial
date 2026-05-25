@@ -16,9 +16,6 @@ class BluetoothConnection {
   //    listen to `input` even just for the `onDone` to proper detect closing.
   //
 
-  /// This ID identifies real full `BluetoothConenction` object on platform side code.
-  final int? _id;
-
   final EventChannel _readChannel;
   late StreamSubscription<Uint8List> _readStreamSubscription;
   late StreamController<Uint8List> _readStreamController;
@@ -39,8 +36,7 @@ class BluetoothConnection {
   bool get isConnected => output.isConnected;
 
   BluetoothConnection._consumeConnectionID(int? id)
-      : this._id = id,
-        this._readChannel =
+      : this._readChannel =
             EventChannel('${FlutterBluetoothSerial.namespace}/read/$id') {
     _readStreamController = StreamController<Uint8List>();
 
@@ -91,7 +87,7 @@ class BluetoothConnection {
 }
 
 /// Helper class for sending responses.
-class _BluetoothStreamSink<Uint8List> extends StreamSink<Uint8List> {
+class _BluetoothStreamSink<Uint8List> implements StreamSink<Uint8List> {
   final int? _id;
 
   /// Describes is stream connected.
