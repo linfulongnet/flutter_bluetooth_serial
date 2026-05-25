@@ -116,12 +116,7 @@ public class FlutterBluetoothSerialPlugin implements FlutterPlugin, ActivityAwar
             public void onReceive(Context context, Intent intent) {
                 switch (intent.getAction()) {
                     case BluetoothDevice.ACTION_PAIRING_REQUEST:
-                        final BluetoothDevice device;
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice.class);
-                        } else {
-                            device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
-                        }
+                        final BluetoothDevice device = getDeviceExtra(intent);
                         final int pairingVariant = intent.getIntExtra(BluetoothDevice.EXTRA_PAIRING_VARIANT, BluetoothDevice.ERROR);
                         Log.d(TAG, "Pairing request (variant " + pairingVariant + ") incoming from " + device.getAddress());
                         switch (pairingVariant) {
@@ -275,12 +270,7 @@ public class FlutterBluetoothSerialPlugin implements FlutterPlugin, ActivityAwar
                 final String action = intent.getAction();
                 switch (action) {
                     case BluetoothDevice.ACTION_FOUND:
-                        final BluetoothDevice device;
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice.class);
-                        } else {
-                            device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
-                        }
+                        final BluetoothDevice device = getDeviceExtra(intent);
                         //final BluetoothClass deviceClass = intent.getParcelableExtra(BluetoothDevice.EXTRA_CLASS); // @TODO . !BluetoothClass!
                         //final String extraName = intent.getStringExtra(BluetoothDevice.EXTRA_NAME); // @TODO ? !EXTRA_NAME!
                         final int deviceRSSI = intent.getShortExtra(BluetoothDevice.EXTRA_RSSI, Short.MIN_VALUE);
@@ -813,12 +803,7 @@ public class FlutterBluetoothSerialPlugin implements FlutterPlugin, ActivityAwar
                             switch (intent.getAction()) {
                                 // @TODO . BluetoothDevice.ACTION_PAIRING_CANCEL
                                 case BluetoothDevice.ACTION_BOND_STATE_CHANGED:
-                                    final BluetoothDevice someDevice;
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                        someDevice = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice.class);
-                                    } else {
-                                        someDevice = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
-                                    }
+                                    final BluetoothDevice someDevice = getDeviceExtra(intent);
                                     if (!someDevice.equals(device)) {
                                         break;
                                     }
@@ -1061,5 +1046,14 @@ public class FlutterBluetoothSerialPlugin implements FlutterPlugin, ActivityAwar
     @SuppressWarnings("deprecation")
     private void disableAdapter() {
         bluetoothAdapter.disable();
+    }
+
+    @SuppressWarnings("deprecation")
+    private BluetoothDevice getDeviceExtra(Intent intent) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            return intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice.class);
+        } else {
+            return intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+        }
     }
 }
