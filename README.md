@@ -4,6 +4,28 @@
 
 Flutter basic implementation for Classical Bluetooth (only RFCOMM for now).
 
+## Requirements
+
+### Dart / Flutter
+
+- Dart SDK: `>=3.7.0 <4.0.0`
+- Flutter: `>=3.28.0`
+
+### Android
+
+- **minSdk**: 21 (Android 5.0)
+- **compileSdk**: 36
+- **targetSdk**: 36
+- **JDK**: 17
+- **AGP**: 8.6.1
+- **Gradle**: 8.7
+
+For **Android 12+ (API 31+)** the following runtime permissions are required:
+- `BLUETOOTH_SCAN`
+- `BLUETOOTH_CONNECT`
+
+The library also declares legacy permissions (`BLUETOOTH`, `BLUETOOTH_ADMIN`, `ACCESS_FINE_LOCATION`) for compatibility with older devices.
+
 ## Features
 
 The first goal of this project, started by @edufolly was making an interface for
@@ -54,7 +76,7 @@ será apreciada. Obrigado pelo seu apoio contínuo!
 # Add dependency to `pubspec.yaml` of your project.
 dependencies:
   # ...
-  flutter_bluetooth_serial: ^0.4.0
+  flutter_bluetooth_serial: ^0.5.0
 ```
 
 #### Installing
